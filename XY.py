@@ -144,7 +144,7 @@ class XY_model:
 
 
 
-#model = XY_model(60, 0.1)
+#model = XY_model(30, 0.1)
 #for i in range(100):
 #    print(i)
 #    model.metropolis_sweep()
