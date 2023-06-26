@@ -101,14 +101,13 @@ class XY_model:
     # animates the plotted grid's spins using monte carlo and the metropolis algorithm
     def animate_spins_monte_carlo(self, frame):
         self.metropolis_sweep()
+        
         U, V = np.cos(self.spin_grid), np.sin(self.spin_grid)
         self.q.set_UVC(U, V)
         return self.q
     
     # animates the plotted grid's spins using numerical integration
     def animate_spins_numerical_integration(self, frame):
-        # Euler method approximation of 2nd order differential eq
-
         self.numerical_integration(0.4)
 
         U, V = np.cos(self.spin_grid), np.sin(self.spin_grid)
