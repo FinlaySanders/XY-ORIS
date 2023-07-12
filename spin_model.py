@@ -152,7 +152,7 @@ print("Test Dataset Size: ", len(dataset))
 n_steps = len(dataset) / loader.batch_size
 print("n steps: ", n_steps)
 
-losses = torch.tensor([])
+#losses = torch.tensor([])
 
 n_epochs = 1
 for epoch in range(n_epochs):
@@ -164,13 +164,13 @@ for epoch in range(n_epochs):
 
         loss_fn = torch.nn.MSELoss()
         loss = loss_fn(x, batch.y)
-        torch.cat((losses, loss.unsqueeze(0)))
+        #torch.cat((losses, loss.unsqueeze(0)))
 
         if batch_n % (n_steps / 100) == 0:
             print(int(batch_n/n_steps*100), "%, Loss: ", loss)
         batch_n += 1
-print(losses)
-print("Average Loss: ", torch.mean(losses))
+#print(losses)
+#print("Average Loss: ", torch.mean(losses))
 
 
 
