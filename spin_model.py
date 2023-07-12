@@ -38,8 +38,6 @@ class NodeModel(torch.nn.Module):
         out = out / fac.view(-1, 1)
 
         return out
-    
-
 
 model = MetaLayer(node_model=NodeModel())
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
