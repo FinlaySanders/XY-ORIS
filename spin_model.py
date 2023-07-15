@@ -50,9 +50,6 @@ model.train()
 # the data objects a given x, y and edge_index
 def generate_dataset(size, temp, n_graphs, graph_depth):
     graphs = []
-
-    # this is constant so only needs to be calculated once
-    edge_index = get_xy_edge_index(xy.spin_grid)
     
     for i in range(n_graphs):
         # one model is used to generate all the data
@@ -62,6 +59,7 @@ def generate_dataset(size, temp, n_graphs, graph_depth):
             xy.metropolis_sweep()
 
         x = get_xy_node_features(xy.spin_grid, xy.spin_vel_grid)
+        edge_index = get_xy_edge_index(xy.spin_grid)
 
         # generates n graphs in the form of a Data object 
         for _ in range(graph_depth):
