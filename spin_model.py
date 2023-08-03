@@ -43,7 +43,6 @@ def create_model():
     val_dataset = generate_spin_dataset(30, 50, 50, metropolis_sweeps=100)
     #val_dataset = torch.load("val_data.pt") 
 
-
     loader = DataLoader(dataset, batch_size=10, shuffle=True)
     n_steps = len(dataset) / loader.batch_size
 
@@ -65,7 +64,6 @@ def create_model():
             batch_n += 1
     
     torch.save(model.node_model.state_dict(), 'NodeModel.pt')
-
 
     model.eval()
 
