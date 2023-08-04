@@ -4,7 +4,8 @@ main.py
 - produces and saves animations using XY.py
 
 XY.py
-- handles the creation and updating of XY models with either numerical integration, metropolis sweeps, or a GNN
+- creates and updates XY models with numerical integration, metropolis sweeps, or a GNN
+- finds and displays vortices
 
 spin_model.py
 - Creates, trains and saves a metalayer that can be passed to an XY model
