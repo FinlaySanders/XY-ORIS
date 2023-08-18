@@ -14,7 +14,7 @@ class XY_model:
         if spin_model != None:
             self.spin_model = spin_model
             self.x = XY_to_graph.get_xy_spin_node_features(self.spin_grid, self.spin_vel_grid)
-            self.edge_index = XY_to_graph.get_xy_edge_index(self.spin_grid)
+            self.edge_index = XY_to_graph.get_xy_edge_index((size,size))
             self.batch = torch.zeros((size*size), dtype=torch.int32)
             self.u = torch.tensor([[1]], dtype=torch.float)
             spin_model.eval()
@@ -56,6 +56,7 @@ class XY_model:
                         + np.sin(self.spin_grid - np.roll(self.spin_grid, 1, axis=1))
                         + np.sin(self.spin_grid - np.roll(self.spin_grid, -1, axis=1))
                         )
+        #print(self.spin_vel_grid)
 
     # returns the indices of vortices and antivortices in the form [y,x] from spins in form (0, 2pi)
     def find_vortices(self):
@@ -100,17 +101,14 @@ class XY_model:
     # animates the plotted grid's spins using a trained GNN
     def update_spins_GNN(self):
         with torch.no_grad():
-            #edge_attr = XY_to_graph.get_xy_edge_attr(self.spin_grid, self.edge_index)
-            self.x, _, _ = self.spin_model(x=self.x, edge_index=self.edge_index, edge_attr=None, u=None, batch=None)
+            edge_attr = XY_to_graph.get_xy_edge_attr(self.spin_grid, self.edge_index)
+            self.x, _, _ = self.spin_model(x=self.x, edge_index=self.edge_index, edge_attr=edge_attr, u=torch.tensor([[1]], dtype=torch.float), batch=torch.tensor([0 for _ in range(self.size*self.size)]))
         sin, cos, vel = np.hsplit(self.x.numpy(), 3)
         self.spin_grid = np.arctan2(sin, cos).reshape(self.size,self.size) % (2*np.pi)
 
-        # normalising spins
-        #fac = (sin*sin + cos*cos) ** 0.5
-        #sin /= fac
-        #cos /= fac 
-
-        self.x = torch.tensor(np.hstack((sin,cos,vel)))
+        # update using vel
+        #self.spin_grid += vel.reshape(self.size, self.size)
+        #print(vel)
 
         U, V = np.cos(self.spin_grid), np.sin(self.spin_grid)
         self.q.set_UVC(U, V)
@@ -129,10 +127,13 @@ class XY_model:
     
 
     # plots the current vortices and spins   
-    def plot_quiver(self, fig, ax, arrow_colour='black', title="XY Model"):
-        self.fig = fig
+    def plot_quiver(self, ax, arrow_colour='black', title="XY Model"):
         self.ax = ax
         self.ax.set_title(title)
+        #ax.set_xticks([])
+        #ax.set_yticks([])
+        #ax.set_xticklabels([])
+        #ax.set_yticklabels([])
 
         # plotting spins on grid
         x = np.arange(self.size)
@@ -147,6 +148,7 @@ class XY_model:
             [n[1] for n in vortices] + [n[1] for n in a_vortices], # x values of vortices, anti vortices
             [n[0] for n in vortices] + [n[0] for n in a_vortices], # y values of vortices, anti vortices
             color=["red" for _ in vortices]+["green" for _ in a_vortices]) # corresponding colours of vortex type 
+
 
 
 

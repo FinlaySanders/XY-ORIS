@@ -10,7 +10,7 @@ from XY import XY_model
 xy = XY_model(5, 0.1)
 
 x = XY_to_graph.get_xy_spin_node_features(xy.spin_grid, xy.spin_vel_grid)
-edge_index = XY_to_graph.get_xy_edge_index(xy.spin_grid)
+edge_index = XY_to_graph.get_xy_edge_index(xy.spin_grid.shape)
 edge_attr = XY_to_graph.get_xy_edge_attr(xy.spin_grid, edge_index)
 
 data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)

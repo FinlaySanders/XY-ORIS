@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 
-def get_xy_edge_index(grid):
-    idx_grid = np.arange(0,grid.shape[0]*grid.shape[1]).reshape(grid.shape)
+def get_xy_edge_index(shape):
+    idx_grid = np.arange(0,shape[0]*shape[1]).reshape(shape)
 
     neighbour_arr = (np.stack([
                             np.roll(idx_grid, -1, axis=0),
@@ -29,7 +29,12 @@ def get_xy_spin_node_features(grid, vel_grid):
     x = np.stack((np.sin(x), np.cos(x), v), axis=1)
     
     return torch.tensor(x, dtype=torch.float)
+
+def get_xy_vortex_node_features(vortices, avortices):
+    pass
+
+
+if __name__ == '__main__':    
+    print(get_xy_edge_index((4,4)))
     
-
-
 

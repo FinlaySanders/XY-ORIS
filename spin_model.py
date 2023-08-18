@@ -3,14 +3,16 @@ from torch.nn import Sequential as Seq, Linear as Lin, ReLU
 from torch_geometric.utils import scatter
 from torch_geometric.nn import MetaLayer
 from torch_geometric.loader import DataLoader
-from dataset import generate_spin_dataset, create_k_step_dataset
+from spin_dataset import create_k_step_dataset
+import matplotlib.pyplot as plt
+import time
+
 
 class NodeModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.node_mlp_1 = Seq(Lin(3, 15), ReLU(), Lin(15, 15), ReLU(), Lin(15, 10))
-        # input is output of above+3
-        self.node_mlp_2 = Seq(Lin(13, 15), ReLU(), Lin(15, 30), ReLU(), Lin(30, 15), ReLU(), Lin(15, 3)) 
+        self.node_mlp_1 = Seq(Lin(3, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8))
+        self.node_mlp_2 = Seq(Lin(11, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 3)) 
 
     def forward(self, x, edge_index, edge_attr, u, batch):
         # x: [N, F_x], where N is the number of nodes.
@@ -23,88 +25,102 @@ class NodeModel(torch.nn.Module):
         #out = torch.cat([x[row], edge_attr], dim=1)
         out = x[row]
         out = self.node_mlp_1(out)
-        out = scatter(out, col, dim=0, dim_size=x.size(0),reduce='mean')
+        out = scatter(out, col, dim=0, dim_size=x.size(0),reduce='sum')
         out = torch.cat([x, out], dim=1)
         out = self.node_mlp_2(out)
 
         magnitude = torch.norm(out[:, :2], dim=1, keepdim=True)
         out = torch.cat([out[:, :2] / magnitude, out[:, 2:]], dim=1)
 
-
         return out
 
-# creates, saves and validates a spin model 
-# models are then passed to XY 
-def create_model():
-    model = MetaLayer(node_model=NodeModel())
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    loss_fn = torch.nn.MSELoss()
+def train_one_epoch(model, optimizer, loss_fn, loader):
     model.train()
+    total_loss = 0.0
 
-    print("getting dataset")
-    dataset = create_k_step_dataset(100, 100)
-        
-    n_steps = len(dataset)
+    for batch in loader:
+        initial_data_batch = batch[0]
+        ground_truths_batches = batch[1:]
 
-    n_epochs = 1
-    for epoch in range(n_epochs):
-        batch_n = 1
-        for batch in dataset:
+        optimizer.zero_grad()
 
-            initial_data_batch = batch[0]  # batch at beginning of sequence
-            ground_truths_batches = batch[1:] # batches at remaining timesteps in the sequnces
+        prediction = initial_data_batch.x
+        loss = 0
 
-            k = len(ground_truths_batches)
+        for ground_truth in ground_truths_batches:
+            prediction, _, _ = model(x=prediction, edge_index=initial_data_batch.edge_index, edge_attr=None, u=None, batch=initial_data_batch.batch)
+            loss += loss_fn(prediction, ground_truth.x)
+            
+        loss.backward()
+        optimizer.step()
 
-            optimizer.zero_grad()
+        total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+def validate_model(model, val_loader, loss_fn):
+    model.eval()
+    total_loss = 0
+
+    with torch.no_grad():
+        for batch in val_loader:
+            
+            initial_data_batch = batch[0]
+            ground_truths_batches = batch[1:]
             
             loss = 0
-
             prediction = initial_data_batch.x
-            for i in range(k):
-                prediction, _, _ = model(x=prediction, edge_index=initial_data_batch.edge_index, edge_attr=None, u=None, batch=initial_data_batch.batch)
+            for sub_batch in ground_truths_batches:
+                prediction, _, _ = model(x=prediction, edge_index=initial_data_batch.edge_index)
+                loss += loss_fn(prediction, sub_batch.x)
 
-                loss += loss_fn(prediction, ground_truths_batches[i].x)
+            total_loss += loss.item()
 
-            print("Batch ", batch_n, " out of ", n_steps, " Loss:", loss)
+    avg_loss = total_loss / len(val_loader)
+    print(f"Validation Loss: {avg_loss}")
+    return avg_loss
 
-            loss.backward()
-            optimizer.step()
+def main():
+    model = MetaLayer(node_model=NodeModel())
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    loss_fn = torch.nn.MSELoss()
 
-            batch_n += 1
-    
-    torch.save(model.node_model.state_dict(), 'NodeModel.pt')
+    print("Creating Dataset...")
+    train_loader, val_loader = create_k_step_dataset(20, 400, 400, train_val_split=0.8, k=10)
+    print("Done!")
 
-    model.eval()
+    train_losses = []
+    val_losses = []
 
-    # Model Validation
-    val_dataset = generate_spin_dataset(30,50,50)
-    loader = DataLoader(val_dataset, batch_size=10, shuffle=True)
-
-    print("Test Dataset Size: ", len(dataset))
-    n_steps = len(dataset) / loader.batch_size
-    print("n steps: ", n_steps)
-
-    losses = torch.tensor([])
-
-    n_epochs = 1
+    n_epochs = 10
     for epoch in range(n_epochs):
-        batch_n = 1
-        for batch in loader:
-            with torch.no_grad():
-                optimizer.zero_grad()
-                x, _, _ = model(x=batch.x, edge_index=batch.edge_index, edge_attr=batch.edge_attr, u=batch.u, batch=batch.batch)
+        start_time = time.time()
 
-            loss_fn = torch.nn.MSELoss()
-            loss = loss_fn(x, batch.y)
-            losses = torch.cat((losses, loss.unsqueeze(0)))
+        # Training
+        avg_train_loss = train_one_epoch(model, optimizer, loss_fn, train_loader)
+        train_losses.append(avg_train_loss)
+        
+        # Validation
+        avg_val_loss = validate_model(model, val_loader, loss_fn)
+        val_losses.append(avg_val_loss)
 
+        torch.save(model.node_model.state_dict(), f'NodeModel_epoch_{epoch + 1}.pt')
 
-            if batch_n % (n_steps / 100) == 0:
-                print(int(batch_n/n_steps*100), "%, Loss: ", loss)
-            batch_n += 1
-    print(losses)
-    print("Average Loss: ", torch.mean(losses))
+        end_time = time.time()
+        epoch_duration = end_time - start_time
+
+        print(f"Epoch {epoch+1}/{n_epochs} - Training Loss: {avg_train_loss}, Validation Loss: {avg_val_loss}, Time: {epoch_duration:.2f} seconds")
+
+    # Plotting losses
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Losses over Time')
+    plt.legend()
+    plt.show()
+
 
 if __name__ == '__main__':
-    create_model()
+    main()
