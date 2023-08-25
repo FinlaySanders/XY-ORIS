@@ -2,15 +2,15 @@ import torch
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU
 from torch_geometric.utils import scatter
 from torch_geometric.nn import MetaLayer
-from torch_geometric.loader import DataLoader
 from vortex_dataset import generate_dataset
+import matplotlib.pyplot as plt
+import time
 
 class NodeModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.node_mlp_1 = Seq(Lin(3, 16), ReLU(), Lin(16, 16))
-        # input is output of above+5
-        self.node_mlp_2 = Seq(Lin(19, 16), ReLU(), Lin(16, 16), ReLU(), Lin(16, 3)) 
+        self.node_mlp_1 = Seq(Lin(5, 8), ReLU(), Lin(8, 8))
+        self.node_mlp_2 = Seq(Lin(13, 8), ReLU(), Lin(8, 16), ReLU(), Lin(16, 8), ReLU(), Lin(8, 5)) 
 
     def forward(self, x, edge_index, edge_attr, u, batch):
         # x: [N, F_x], where N is the number of nodes.
@@ -29,40 +29,84 @@ class NodeModel(torch.nn.Module):
 
         return out
 
-# creates, saves and validates a spin model 
-# models are then passed to XY 
-def create_model():
-    model = MetaLayer(node_model=NodeModel())
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    loss_fn = torch.nn.MSELoss()
+def train_one_epoch(model, optimizer, loss_fn, loader, lattice_size):
     model.train()
+    total_loss = 0.0
 
-    dataset = generate_dataset(20, 100, 100)
+    for batch in loader:
+        optimizer.zero_grad()
 
-    loader = DataLoader(dataset, batch_size=5, shuffle=True)
+        x, _, _ = model(x=batch.x, edge_index=batch.edge_index, edge_attr=None, u=None, batch=batch.batch)
+        
+        loss = loss_fn(x, batch.y)
 
-    print("Test Dataset Size: ", len(dataset))
-    n_steps = len(dataset) / loader.batch_size
-    print("n steps: ", n_steps)
+        loss.backward()
+        optimizer.step()
 
-    n_epochs = 2
-    for epoch in range(n_epochs):
-        batch_n = 1
-        for batch in loader:
+        total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+def validate_model(model, val_loader, loss_fn, lattice_size):
+    model.eval()
+    total_loss = 0
+
+    with torch.no_grad():
+        for batch in val_loader:
             
-            optimizer.zero_grad()
-
             x, _, _ = model(x=batch.x, edge_index=batch.edge_index, edge_attr=None, u=None, batch=batch.batch)
 
             loss = loss_fn(x, batch.y)
 
-            loss.backward()
-            optimizer.step()
+            total_loss += loss.item()
 
-            print("Batch ", batch_n, " out of ", n_steps, " Loss:", loss)
-            batch_n += 1
-    
-    torch.save(model.node_model.state_dict(), 'VortexModel.pt')
+    avg_loss = total_loss / len(val_loader)
+    print(f"Validation Loss: {avg_loss}")
+    return avg_loss
+
+def main():
+    model = MetaLayer(node_model=NodeModel())
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    loss_fn = torch.nn.MSELoss()
+
+    print("Creating Dataset...")
+    lattice_size = 20
+    train_loader, val_loader = generate_dataset(lattice_size, 2000, 300, train_val_split=0.8)
+    print("datset len: ", len(train_loader))
+    print("Done!")
+
+    train_losses = []
+    val_losses = []
+
+    n_epochs = 10
+    for epoch in range(n_epochs):
+        start_time = time.time()
+
+        # Training
+        avg_train_loss = train_one_epoch(model, optimizer, loss_fn, train_loader, lattice_size)
+        train_losses.append(avg_train_loss)
+        
+        # Validation
+        avg_val_loss = validate_model(model, val_loader, loss_fn, lattice_size)
+        val_losses.append(avg_val_loss)
+
+        torch.save(model.node_model.state_dict(), f'VortexModel_epoch_{epoch + 1}.pt')
+
+        end_time = time.time()
+        epoch_duration = end_time - start_time
+
+        print(f"Epoch {epoch+1}/{n_epochs} - Training Loss: {avg_train_loss}, Validation Loss: {avg_val_loss}, Time: {epoch_duration:.2f} seconds")
+
+    # Plotting losses
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Losses over Time')
+    plt.legend()
+    plt.show()
+
 
 if __name__ == '__main__':
-    create_model()
+    main()

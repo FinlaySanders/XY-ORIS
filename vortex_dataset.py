@@ -1,14 +1,261 @@
 import torch
 from torch_geometric.data import Data
-from torch_geometric.data import Batch
-from torch.utils.data import DataLoader
+from torch_geometric.loader import DataLoader
 
 from XY import XY_model
 import XY_to_graph
-from copy import deepcopy
+
+from scipy.optimize import linear_sum_assignment
+import numpy as np
+import math
+
+def generate_discrete_dataset(size, amount, max_depth, train_val_split=0.8):
+    dataset = []
+    
+    for i in range(amount):
+        print(i)
+        xy = XY_model(size, 0.1)
+        for _ in range(50):
+            xy.metropolis_sweep()
+        for _ in range(20):
+            xy.numerical_integration(1)
+
+        prev_v, prev_av = xy.find_vortices()
+
+        for _ in range(max_depth):
+            xy.numerical_integration(1)
+
+            new_v, new_av = xy.find_vortices()
+
+            if new_av == [] or new_v == []:
+                continue
+
+            v_pairs = pair_vortices(prev_v, new_v, size)
+            av_pairs = pair_vortices(prev_av, new_av, size)
+
+            x = []
+            y = []
+
+            for prev, new in v_pairs.items():
+                x.append(XY_to_graph.pos_to_angles(prev, size) + (1,))
+                y.append(XY_to_graph.pos_to_angles(new, size) + (1,))
+            
+            for prev, new in av_pairs.items():
+                x.append(XY_to_graph.pos_to_angles(prev, size) + (-1,))
+                y.append(XY_to_graph.pos_to_angles(new, size) + (-1,))
+
+            x = torch.tensor(x, dtype=torch.float)
+            y = torch.tensor(y, dtype=torch.float)
+
+            n_vortices = len(x)
+            rows, cols = torch.combinations(torch.arange(n_vortices), 2).t()
+            edge_index = torch.cat([torch.stack([rows, cols]), torch.stack([cols, rows])], dim=1)
+
+            dataset.append(Data(x=x, y=y, edge_index=edge_index))
+
+            prev_v, prev_av = new_v, new_av
+
+    print("DATASET LEN: ", len(dataset))
+    split_idx = int(train_val_split * len(dataset))
+    train_data = dataset[:split_idx]
+    val_data = dataset[split_idx:]
+
+    train_loader = DataLoader(train_data, batch_size=5, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=5, shuffle=True)
+
+    print("TRAIN LENGTH: ", len(train_loader))
+    
+    return train_loader, val_loader
+
+def generate_dataset(size, amount, max_depth, train_val_split=0.8):
+    dataset = []
+
+    for i in range(amount):
+        print(i)
+        v_traj, av_traj = generate_xy_trajectories(size, max_depth)
+        #print("it")
+        #print(v_traj)
+        v_traj = [smooth_trajectory(traj, (size, size)) for traj in v_traj]
+        #print(v_traj)
+        av_traj = [smooth_trajectory(traj, (size, size)) for traj in av_traj]
+        #v_traj = smooth_trajectory(v_traj, (size, size))
+        #av_traj = smooth_trajectory(av_traj, (size, size))
+
+        for i in range(max_depth):
+            x = []
+            y = []
+
+            for traj in v_traj:
+                pair = traj[i:i+2]
+                if len(pair) == 2:
+                    x.append(XY_to_graph.pos_to_angles(pair[0], size) + (1,))
+                    y.append(XY_to_graph.pos_to_angles(pair[1], size) + (1,))
+                    #x.append((pair[0][0]/size, pair[0][1]/size, 1))
+                    #y.append((pair[1][0]/size, pair[1][1]/size, 1))
+            
+            for traj in av_traj:
+                pair = traj[i:i+2]
+                if len(pair) == 2:
+                    x.append(XY_to_graph.pos_to_angles(pair[0], size) + (-1,))
+                    y.append(XY_to_graph.pos_to_angles(pair[1], size) + (-1,))
+                    #x.append((pair[0][0]/size, pair[0][1]/size, -1))
+                    #y.append((pair[1][0]/size, pair[1][1]/size, -1))
+            
+            if x == [] or y == []:
+                continue
+        
+            x = torch.tensor(x, dtype=torch.float)
+            y = torch.tensor(y, dtype=torch.float)
+
+            n_vortices = len(x)
+            rows, cols = torch.combinations(torch.arange(n_vortices), 2).t()
+            edge_index = torch.cat([torch.stack([rows, cols]), torch.stack([cols, rows])], dim=1)
+
+            dataset.append(Data(x=x, y=y, edge_index=edge_index))
+    
+    print("DATASET LEN: ", len(dataset))
+    split_idx = int(train_val_split * len(dataset))
+    train_data = dataset[:split_idx]
+    val_data = dataset[split_idx:]
+
+    train_loader = DataLoader(train_data, batch_size=5, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=5, shuffle=True)
+
+    print("TRAIN LENGTH: ", len(train_loader))
+    
+    return train_loader, val_loader
+
+def generate_xy_trajectories(size, max_depth):
+    xy = XY_model(size, 0.1)
+    for _ in range(20):
+        xy.numerical_integration(1)
+    
+    v_trajectories = []
+    av_trajectories = []
+
+    prev_v, prev_av = xy.find_vortices()
+    for pos in prev_v:
+        v_trajectories.append([pos])
+    for pos in prev_av:
+        av_trajectories.append([pos])
+
+    for depth in range(max_depth):
+        xy.numerical_integration(1)
+
+        new_v, new_av = xy.find_vortices()
+
+        v_pairs = pair_vortices(prev_v, new_v, size)
+        av_pairs = pair_vortices(prev_av, new_av, size)
+
+        
+        annihilated_vortices = list(set(prev_v) - set(new_v))
+        annihilated_avortices = list(set(prev_av) - set(new_av))
+        annihilated_pairs = pair_vortices(annihilated_avortices, annihilated_vortices, size)
+        annihilation_poses = {}
+        for av, v in annihilated_pairs.items():
+            mid = pbc_average([av, v], size)
+            annihilation_poses[v] = mid
+            annihilation_poses[av] = mid
+        
+        
+        for traj in v_trajectories:
+            if len(traj) -1 != depth:
+                continue 
+
+            if traj[-1] in v_pairs:
+                traj.append(v_pairs[traj[-1]]) 
+            elif traj[-1] in annihilation_poses:
+                traj.append(annihilation_poses[traj[-1]]) 
+            
+        for traj in av_trajectories:
+            if len(traj) -1 != depth:
+                continue 
+
+            if traj[-1] in av_pairs:
+                traj.append(av_pairs[traj[-1]]) 
+            elif traj[-1] in annihilation_poses:
+                traj.append(annihilation_poses[traj[-1]]) 
+
+        prev_v, prev_av = new_v, new_av
+    
+    return v_trajectories, av_trajectories
 
 
-def shortest_distance_between(pos1, pos2, lattice_size):
+def moving_average_trajectory(trajectories, size, n=3):
+    def moving_average(points):
+        smoothed = []
+        #print("points")
+        #print(points)
+        for i in range(len(points)):
+            #print("taking PBCs")
+            avg_x, avg_y = pbc_average([point for point in points[max(i-4, 0):i+5]], size)
+        
+            smoothed.append((avg_x, avg_y))
+        return smoothed
+
+    return [moving_average(trajectory) for trajectory in trajectories]
+
+# ------------------------------- Trajectory Smoothing
+
+def bezier_curve(points, t_values):
+    n = len(points) - 1
+    curve = np.zeros((len(t_values), 2))
+
+    for i, t in enumerate(t_values):
+        for j, point in enumerate(points):
+            curve[i] += point * (np.math.comb(n, j) * (1 - t) ** (n - j) * t ** j)
+    return curve
+
+def unwrap_trajectory_1d(trajectory, world_size):
+    threshold = world_size / 2
+
+    unwrapped = [trajectory[0]]
+    offset = 0
+    for i in range(1, len(trajectory)):
+        delta = trajectory[i] - trajectory[i-1]
+        if delta > threshold:
+            offset -= world_size
+        elif delta < -threshold:
+            offset += world_size
+        unwrapped.append(trajectory[i] + offset)
+    return np.array(unwrapped)
+
+def unwrap_trajectory_2d(trajectory, world_size):
+    x_unwrapped = unwrap_trajectory_1d(trajectory[:, 0], world_size[0])
+    y_unwrapped = unwrap_trajectory_1d(trajectory[:, 1], world_size[1])
+    return np.vstack((x_unwrapped, y_unwrapped)).T
+
+
+def smooth_trajectory(positions, world_size):
+    positions = np.array(positions)
+    positions = unwrap_trajectory_2d(positions, world_size)
+    
+    t_values = np.linspace(0, 1, len(positions))
+    smoothed_positions = bezier_curve(positions, t_values)
+    
+    return smoothed_positions.tolist()
+
+# -------------------------------
+
+
+def pair_vortices(prev_v, new_v, lattice_size):
+    pairs = {}
+
+    dist_matrix = np.zeros((len(prev_v), len(new_v)))
+
+    for i in range(len(prev_v)):
+        for j in range(len(new_v)):
+            dist_matrix[i][j] = pbc_distance(prev_v[i], new_v[j], lattice_size)
+
+    # Apply Hungarian algorithm
+    row_ind, col_ind = linear_sum_assignment(dist_matrix)
+
+    pairs = {prev_v[i]: new_v[j] for i, j in zip(row_ind, col_ind)}
+
+    #print(f"pairs: {pairs}")
+    return pairs
+
+def pbc_distance(pos1, pos2, lattice_size):
     dx = abs(pos1[0] - pos2[0])
     dy = abs(pos1[1] - pos2[1])
     
@@ -17,175 +264,97 @@ def shortest_distance_between(pos1, pos2, lattice_size):
     
     return (dx**2 + dy**2)**0.5
 
-def get_xy_vortex_trajectories(size, depth):
-    vortex_trajectories = []
-    avortex_trajectories = []
+def pbc_average(points, size):
+    #print(f"computing pbc with {points} in box size {size}")
 
-    xy = XY_model(size, 0.1)
-    for _ in range(50):
-        xy.metropolis_sweep()
-    for _ in range(50):
-        xy.numerical_integration(1)
+    sum_cos_x = 0
+    sum_sin_x = 0
+    sum_cos_y = 0
+    sum_sin_y = 0
 
-    prev_vs, prev_avs = xy.find_vortices()
-    for v in prev_vs:
-        vortex_trajectories.append([v])
-    for av in prev_avs:
-        avortex_trajectories.append([av])
+    for point in points:
+        sum_cos_x += math.cos(2 * math.pi * point[0] / size)
+        sum_sin_x += math.sin(2 * math.pi * point[0] / size)
+        sum_cos_y += math.cos(2 * math.pi * point[1] / size)
+        sum_sin_y += math.sin(2 * math.pi * point[1] / size)
+
+    avg_cos_x = sum_cos_x / len(points)
+    avg_sin_x = sum_sin_x / len(points)
+    avg_cos_y = sum_cos_y / len(points)
+    avg_sin_y = sum_sin_y / len(points)
     
-    for t in range(depth):
-        xy.numerical_integration(1)
-
-        new_vs, new_avs = xy.find_vortices()
-
-        if len(new_vs) + len(new_avs) != len(prev_vs) + len(prev_avs):
-            print(f"annihilation found after {t}")
-            break
-            
-        v_pairs, av_pairs = match_vortices(new_vs, prev_vs, new_avs, prev_avs, size)
-
-        if v_pairs == {} or av_pairs == {}:
-            print(f" --------- ran out of vortices after {t} iterations ------------")
-            break
-  
-
-        for traj in vortex_trajectories:
-            # if trajectory has already concluded, ignore
-            if len(traj) != t+1:
-                continue
-            
-            # if trajectory has a new point, append it
-            prev_pos = traj[t]
-            if prev_pos in v_pairs:
-                traj.append(v_pairs[prev_pos])
-        
-        for traj in avortex_trajectories:
-            if len(traj) != t+1:
-                continue
-            prev_pos = traj[t]
-            if prev_pos in av_pairs:
-                traj.append(av_pairs[prev_pos])
-        
-        vortex_sum = 0
-        avortex_sum = 0
-        for traj in vortex_trajectories:
-            vortex_sum += len(traj)
-        for traj in avortex_trajectories:
-            avortex_sum += len(traj)
-        
-        if vortex_sum != avortex_sum:
-            print(f"Error after {t} iterations")
-            
-        prev_vs = new_vs
-        prev_avs = new_avs
-        
-    # smoothing out trajectories
-
-    return vortex_trajectories, avortex_trajectories
-
-
-def smooth_trajectories(vortex_trajectories, avortex_trajectories):
-    for traj in vortex_trajectories:
-        root = traj[0]
-        n_repeats = 0
-
-        for i in range(len(traj) - 1):
-            if traj[i+1] == root:
-                n_repeats += 1
-            
-            else:
-                if n_repeats > 0:
-                    new_root = traj[i+1]
-                    pos_diff = (new_root[0] - root[0], new_root[1] - root[1])
-                    fac = (pos_diff[0] / (n_repeats + 1), pos_diff[1] / (n_repeats + 1))
-
-                    for j in range(n_repeats):
-                        #traj[i - j -1][0] -= fac[0] * (j+1)
-                        #traj[i - j -1][1] -= fac[1] * (j+1)
-
-                        traj[i - j - 1] = (
-                            traj[i - j][0] - fac[0] * (j+1), 
-                            traj[i - j][1] - fac[1] * (j+1)
-                            )
-
-                    root = new_root
-                    n_repeats = 0 
+    avg_angle_x = math.atan2(avg_sin_x, avg_cos_x)
+    avg_angle_y = math.atan2(avg_sin_y, avg_cos_y)
     
-    return vortex_trajectories, avortex_trajectories
-        
+    avg_x = (avg_angle_x / (2 * math.pi)) * size
+    avg_y = (avg_angle_y / (2 * math.pi)) * size
 
+    avg_x = avg_x % size
+    avg_y = avg_y % size
 
+    return avg_x, avg_y
 
-def match_vortices(new_v_poses, old_v_poses, new_av_poses, old_av_poses, size):
-    av_pairs = {}
-    v_pairs = {}
+def plot_trajectories(v_trajectories, av_trajectories):
 
-    for np in new_av_poses:
-        closest_old = None
-        min_distance = 999999
-        for op in old_av_poses:
-            dist = shortest_distance_between(np, op, size)
-            if dist < min_distance:
-                min_distance = dist
-                closest_old = op
-        av_pairs[closest_old] = np
-    
-    for np in new_v_poses:
-        closest_old = None
-        min_distance = 999999
-        for op in old_v_poses:
-            dist = shortest_distance_between(np, op, size)
-            if dist < min_distance:
-                min_distance = dist
-                closest_old = op
-        v_pairs[closest_old] = np
-    
-    return v_pairs, av_pairs
+    x = []
+    y = []
+    color = []
 
-def generate_dataset(size, amount, depth):
-    dataset = []
-    for i in range(amount):
-        print(i)
-        vortex_trajectories, avortex_trajectories = get_xy_vortex_trajectories(size, depth)
+    for traj in v_trajectories:
+        x += [row[1] for row in traj]
+        y += [row[0] for row in traj]
+        color += ["red" for _ in traj]
+    for traj in av_trajectories:
+        x += [row[1] for row in traj]
+        y += [row[0] for row in traj]
+        color += ["green" for _ in traj]
 
-        if vortex_trajectories == [] or avortex_trajectories == []:
+    plt.scatter(x, y, color=color)
+
+    plt.xlim([0, 30])
+    plt.ylim([0, 30])
+    plt.show()    
+
+def plot_trajectories_slice(frame, axs, v_trajectories, av_trajectories):
+    print(frame)
+    x = []
+    y = []
+    color = []
+
+    for traj in v_trajectories:
+        if len(traj)-1 < frame:
             continue
+        x.append(traj[frame][1])
+        y.append(traj[frame][0])
+        color.append("red")
+    for traj in av_trajectories:
+        if len(traj)-1 < frame:
+            continue
+        x.append(traj[frame][1])
+        y.append(traj[frame][0])
+        color.append("green")
 
-        n_vortices = len(vortex_trajectories) + len(avortex_trajectories)
-        trajectory_length = len(vortex_trajectories[0])
+    axs.clear()
+    v = axs.scatter(x, y, color=color)
 
-        for i in range(trajectory_length - 1):
-            vortex_poses = [row[i] for row in vortex_trajectories]
-            avortex_poses = [row[i] for row in vortex_trajectories]
-            
-            x = []
-            for pos in vortex_poses:
-                x.append(pos + (1,))
-            for pos in avortex_poses:
-                x.append(pos + (-1,))
-            
-            vortex_poses = [row[i+1] for row in vortex_trajectories]
-            avortex_poses = [row[i+1] for row in vortex_trajectories]
+    plt.xlim([0, 30])
+    plt.ylim([0, 30])
 
-            y = []
-            for pos in vortex_poses:
-                y.append(pos + (1,))
-            for pos in avortex_poses:
-                y.append(pos + (-1,))
+    return v
 
-            rows, cols = torch.combinations(torch.arange(n_vortices), 2).t()
-            edge_index = torch.cat([torch.stack([rows, cols]), torch.stack([cols, rows])], dim=1)
 
-            dataset.append(Data(x=torch.tensor(x, dtype=torch.float), y=torch.tensor(y, dtype=torch.float), edge_index=edge_index))
+if __name__ == '__main__':    
+    from matplotlib import pyplot as plt, animation
+    fig, axs = plt.subplots()
+
+    size = 30
     
-    return dataset
+    v_traj, av_traj = generate_xy_trajectories(size, 400)
+    print(len(v_traj))
+    v_traj = [smooth_trajectory(traj, (size, size)) for traj in v_traj]
+    print(len(v_traj))
+    av_traj = [smooth_trajectory(traj, (size, size)) for traj in av_traj]
 
-
-
-
-if __name__ == '__main__':
-    #generate_dataset(30, 5, 100)
-    vortex_trajectories, avortex_trajectories = get_xy_vortex_trajectories(30, 10)
-    print(vortex_trajectories)
-    vortex_trajectories, avortex_trajectories = smooth_trajectories(vortex_trajectories, avortex_trajectories)
-    print(vortex_trajectories)
+    plot_trajectories(v_traj, av_traj)
+    #anim = animation.FuncAnimation(fig, plot_trajectories_slice, fargs=(axs, v_traj, av_traj), interval=100, frames=1000, repeat=False)
+    plt.show()

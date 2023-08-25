@@ -2,7 +2,6 @@ import torch
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU
 from torch_geometric.utils import scatter
 from torch_geometric.nn import MetaLayer
-from torch_geometric.loader import DataLoader
 from spin_dataset import create_k_step_dataset
 import matplotlib.pyplot as plt
 import time
@@ -12,7 +11,7 @@ class NodeModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.node_mlp_1 = Seq(Lin(3, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8))
-        self.node_mlp_2 = Seq(Lin(11, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 3)) 
+        self.node_mlp_2 = Seq(Lin(11, 8), ReLU(), Lin(8, 16), ReLU(), Lin(16, 8), ReLU(), Lin(8, 3)) 
 
     def forward(self, x, edge_index, edge_attr, u, batch):
         # x: [N, F_x], where N is the number of nodes.
@@ -86,7 +85,7 @@ def main():
     loss_fn = torch.nn.MSELoss()
 
     print("Creating Dataset...")
-    train_loader, val_loader = create_k_step_dataset(20, 400, 400, train_val_split=0.8, k=10)
+    train_loader, val_loader = create_k_step_dataset(20, 400, 100, train_val_split=0.8, k=4)
     print("Done!")
 
     train_losses = []

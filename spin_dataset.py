@@ -18,10 +18,10 @@ def generate_spin_dataset(size, n_graphs, graph_depth, dt=1, metropolis_sweeps=0
         # one model is used to generate all the data
         xy = XY_model(size, 0.1)
 
-        for _ in range(metropolis_sweeps):
-            xy.metropolis_sweep()
-        for _ in range(integrations):
-            xy.numerical_integration(1)
+        #for _ in range(metropolis_sweeps):
+        #    xy.metropolis_sweep()
+        ##for _ in range(integrations):
+        #    xy.numerical_integration(1)
 
         x = XY_to_graph.get_xy_spin_node_features(xy.spin_grid, xy.spin_vel_grid)
 
@@ -62,7 +62,7 @@ def create_k_step_dataset(size, amount, depth, train_val_split=0.8, k=10):
 
     # Create DataLoader for training and validation datasets
     train_loader = DataLoader(train_sequences, batch_size=5, shuffle=True, collate_fn=custom_collate)
-    val_loader = DataLoader(val_sequences, batch_size=5, shuffle=False, collate_fn=custom_collate)
+    val_loader = DataLoader(val_sequences, batch_size=5, shuffle=True, collate_fn=custom_collate)
     
     return train_loader, val_loader
     
@@ -88,11 +88,6 @@ def create_data_sequences(size, amount, length):
     for i in range(amount):
         new_sequence = []
         xy = XY_model(size, 0.1)
-
-        for _ in range(amount // (i+1)):
-            xy.metropolis_sweep()
-        for _ in range(25):
-            xy.numerical_integration(1)
 
         for _ in range(length):
             x = XY_to_graph.get_xy_spin_node_features(xy.spin_grid, xy.spin_vel_grid)

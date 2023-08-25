@@ -1,6 +1,7 @@
 import numpy as np
 import XY_to_graph
 import torch
+from copy import deepcopy
 
 class XY_model:
     def __init__(self, size, temp, spin_model=None):
@@ -39,24 +40,27 @@ class XY_model:
             if np.random.uniform(0.0, 1.0) < np.exp(-(d_energy/self.temp)):
                 self.spin_grid[y,x] = new_theta
 
-    # performs numerical integration and updates spins accordingly
     def numerical_integration(self, time):
-        dt = time
-        #for _ in range(int(time/dt)):
-        
-        self.spin_grid += dt * self.spin_vel_grid
-                
-        # keep angles in (0, 2pi) so vortices can be detected
-        self.spin_grid = self.spin_grid % (2*np.pi)
+        dt = 0.05  # smaller time step for improved accuracy
+        steps = int(time / dt)
 
+        for _ in range(steps):
+            # Update spin grid
+            self.spin_grid += dt * self.spin_vel_grid
 
-        self.spin_vel_grid += self.temp * -dt * (
-                        + np.sin(self.spin_grid - np.roll(self.spin_grid, 1, axis=0))
-                        + np.sin(self.spin_grid - np.roll(self.spin_grid, -1, axis=0))
-                        + np.sin(self.spin_grid - np.roll(self.spin_grid, 1, axis=1))
-                        + np.sin(self.spin_grid - np.roll(self.spin_grid, -1, axis=1))
-                        )
-        #print(self.spin_vel_grid)
+            # Damping term
+            self.spin_vel_grid *= 0.99
+
+            # Keep angles in (0, 2pi)
+            self.spin_grid = self.spin_grid % (2 * np.pi)
+
+            # Update spin velocities
+            self.spin_vel_grid += -dt * (
+                + np.sin(self.spin_grid - np.roll(self.spin_grid, 1, axis=0))
+                + np.sin(self.spin_grid - np.roll(self.spin_grid, -1, axis=0))
+                + np.sin(self.spin_grid - np.roll(self.spin_grid, 1, axis=1))
+                + np.sin(self.spin_grid - np.roll(self.spin_grid, -1, axis=1))
+            )
 
     # returns the indices of vortices and antivortices in the form [y,x] from spins in form (0, 2pi)
     def find_vortices(self):
