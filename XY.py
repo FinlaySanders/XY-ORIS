@@ -4,12 +4,19 @@ import torch
 from copy import deepcopy
 
 class XY_model:
-    def __init__(self, size, temp, spin_model=None):
+    def __init__(self, size, temp, spin_model=None, spin_grid=None, spin_vel_grid=None):
         self.J  = 1
         self.temp = temp
         self.size = size
-        self.spin_grid = np.random.rand(size, size) * 2 * np.pi
-        self.spin_vel_grid = np.zeros((size,size))
+
+        if spin_grid is not None:
+            self.spin_grid = spin_grid
+        else:
+            self.spin_grid = np.random.rand(size, size) * 2 * np.pi
+        if spin_vel_grid is not None:
+            self.spin_vel_grid = spin_vel_grid
+        else:
+            self.spin_vel_grid = np.zeros((size,size))
         
         # GNN specific variables
         if spin_model != None:
@@ -103,7 +110,7 @@ class XY_model:
         return self.q
 
     # animates the plotted grid's spins using a trained GNN
-    def update_spins_GNN(self):
+    def update_spins_GNN(self, draw=True):
         with torch.no_grad():
             edge_attr = XY_to_graph.get_xy_edge_attr(self.spin_grid, self.edge_index)
             self.x, _, _ = self.spin_model(x=self.x, edge_index=self.edge_index, edge_attr=edge_attr, u=torch.tensor([[1]], dtype=torch.float), batch=torch.tensor([0 for _ in range(self.size*self.size)]))
@@ -113,6 +120,9 @@ class XY_model:
         # update using vel
         #self.spin_grid += vel.reshape(self.size, self.size)
         #print(vel)
+
+        if not draw:
+            return
 
         U, V = np.cos(self.spin_grid), np.sin(self.spin_grid)
         self.q.set_UVC(U, V)
@@ -134,10 +144,10 @@ class XY_model:
     def plot_quiver(self, ax, arrow_colour='black', title="XY Model"):
         self.ax = ax
         self.ax.set_title(title)
-        #ax.set_xticks([])
-        #ax.set_yticks([])
-        #ax.set_xticklabels([])
-        #ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
 
         # plotting spins on grid
         x = np.arange(self.size)

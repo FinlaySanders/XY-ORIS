@@ -10,8 +10,11 @@ import time
 class NodeModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.node_mlp_1 = Seq(Lin(3, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8))
-        self.node_mlp_2 = Seq(Lin(11, 8), ReLU(), Lin(8, 16), ReLU(), Lin(16, 8), ReLU(), Lin(8, 3)) 
+        #self.node_mlp_1 = Seq(Lin(3, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 8))
+        #self.node_mlp_2 = Seq(Lin(11, 8), ReLU(), Lin(8, 16), ReLU(), Lin(16, 8), ReLU(), Lin(8, 3)) 
+
+        self.node_mlp_1 = Seq(Lin(3, 8), ReLU(), Lin(8, 5))
+        self.node_mlp_2 = Seq(Lin(6, 8), ReLU(), Lin(8, 8), ReLU(), Lin(8, 3)) 
 
     def forward(self, x, edge_index, edge_attr, u, batch):
         # x: [N, F_x], where N is the number of nodes.
@@ -22,14 +25,14 @@ class NodeModel(torch.nn.Module):
 
         row, col = edge_index
         #out = torch.cat([x[row], edge_attr], dim=1)
-        out = x[row]
-        out = self.node_mlp_1(out)
-        out = scatter(out, col, dim=0, dim_size=x.size(0),reduce='sum')
+        #out = x[row]
+        #out = self.node_mlp_1(out)
+        out = scatter(x[row], col, dim=0, dim_size=x.size(0),reduce='sum')
         out = torch.cat([x, out], dim=1)
         out = self.node_mlp_2(out)
 
-        magnitude = torch.norm(out[:, :2], dim=1, keepdim=True)
-        out = torch.cat([out[:, :2] / magnitude, out[:, 2:]], dim=1)
+        #magnitude = torch.norm(out[:, :2], dim=1, keepdim=True)
+        #out = torch.cat([out[:, :2] / magnitude, out[:, 2:]], dim=1)
 
         return out
 
@@ -85,7 +88,7 @@ def main():
     loss_fn = torch.nn.MSELoss()
 
     print("Creating Dataset...")
-    train_loader, val_loader = create_k_step_dataset(20, 400, 100, train_val_split=0.8, k=4)
+    train_loader, val_loader = create_k_step_dataset(20, 200, 200, train_val_split=0.8, k=8)
     print("Done!")
 
     train_losses = []
@@ -103,7 +106,7 @@ def main():
         avg_val_loss = validate_model(model, val_loader, loss_fn)
         val_losses.append(avg_val_loss)
 
-        torch.save(model.node_model.state_dict(), f'NodeModel_epoch_{epoch + 1}.pt')
+        torch.save(model.node_model.state_dict(), f'NodeModel_tst_epoch_{epoch + 1}.pt')
 
         end_time = time.time()
         epoch_duration = end_time - start_time

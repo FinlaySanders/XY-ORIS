@@ -67,17 +67,17 @@ def generate_discrete_dataset(size, amount, max_depth, train_val_split=0.8):
     
     return train_loader, val_loader
 
-def generate_dataset(size, amount, max_depth, train_val_split=0.8):
+def generate_dataset(size, amount, max_depth, train_val_split=0.8, cooling=20):
     dataset = []
 
     for i in range(amount):
         print(i)
-        v_traj, av_traj = generate_xy_trajectories(size, max_depth)
+        v_traj, av_traj = generate_xy_trajectories(size, max_depth, cooling=cooling)
         #print("it")
         #print(v_traj)
-        v_traj = [smooth_trajectory(traj, (size, size)) for traj in v_traj]
+        v_traj = [smooth_trajectory(traj, size) for traj in v_traj]
         #print(v_traj)
-        av_traj = [smooth_trajectory(traj, (size, size)) for traj in av_traj]
+        av_traj = [smooth_trajectory(traj, size) for traj in av_traj]
         #v_traj = smooth_trajectory(v_traj, (size, size))
         #av_traj = smooth_trajectory(av_traj, (size, size))
 
@@ -125,9 +125,9 @@ def generate_dataset(size, amount, max_depth, train_val_split=0.8):
     
     return train_loader, val_loader
 
-def generate_xy_trajectories(size, max_depth):
+def generate_xy_trajectories(size, max_depth, cooling=20):
     xy = XY_model(size, 0.1)
-    for _ in range(20):
+    for _ in range(cooling):
         xy.numerical_integration(1)
     
     v_trajectories = []
@@ -143,6 +143,9 @@ def generate_xy_trajectories(size, max_depth):
         xy.numerical_integration(1)
 
         new_v, new_av = xy.find_vortices()
+
+        #if new_v == [] or new_av == []:
+        #    print("ran out!")
 
         v_pairs = pair_vortices(prev_v, new_v, size)
         av_pairs = pair_vortices(prev_av, new_av, size)
@@ -181,20 +184,6 @@ def generate_xy_trajectories(size, max_depth):
     return v_trajectories, av_trajectories
 
 
-def moving_average_trajectory(trajectories, size, n=3):
-    def moving_average(points):
-        smoothed = []
-        #print("points")
-        #print(points)
-        for i in range(len(points)):
-            #print("taking PBCs")
-            avg_x, avg_y = pbc_average([point for point in points[max(i-4, 0):i+5]], size)
-        
-            smoothed.append((avg_x, avg_y))
-        return smoothed
-
-    return [moving_average(trajectory) for trajectory in trajectories]
-
 # ------------------------------- Trajectory Smoothing
 
 def bezier_curve(points, t_values):
@@ -221,8 +210,8 @@ def unwrap_trajectory_1d(trajectory, world_size):
     return np.array(unwrapped)
 
 def unwrap_trajectory_2d(trajectory, world_size):
-    x_unwrapped = unwrap_trajectory_1d(trajectory[:, 0], world_size[0])
-    y_unwrapped = unwrap_trajectory_1d(trajectory[:, 1], world_size[1])
+    x_unwrapped = unwrap_trajectory_1d(trajectory[:, 0], world_size)
+    y_unwrapped = unwrap_trajectory_1d(trajectory[:, 1], world_size)
     return np.vstack((x_unwrapped, y_unwrapped)).T
 
 
@@ -232,6 +221,8 @@ def smooth_trajectory(positions, world_size):
     
     t_values = np.linspace(0, 1, len(positions))
     smoothed_positions = bezier_curve(positions, t_values)
+
+    smoothed_positions %= world_size
     
     return smoothed_positions.tolist()
 
@@ -293,8 +284,8 @@ def pbc_average(points, size):
     avg_y = avg_y % size
 
     return avg_x, avg_y
-
-def plot_trajectories(v_trajectories, av_trajectories):
+"""
+def plot_trajectories(v_trajectories, av_trajectories, size):
 
     x = []
     y = []
@@ -311,9 +302,8 @@ def plot_trajectories(v_trajectories, av_trajectories):
 
     plt.scatter(x, y, color=color)
 
-    plt.xlim([0, 30])
-    plt.ylim([0, 30])
-    plt.show()    
+    plt.xlim([0, size])
+    plt.ylim([0, size])
 
 def plot_trajectories_slice(frame, axs, v_trajectories, av_trajectories):
     print(frame)
@@ -341,20 +331,26 @@ def plot_trajectories_slice(frame, axs, v_trajectories, av_trajectories):
     plt.ylim([0, 30])
 
     return v
-
+"""
 
 if __name__ == '__main__':    
-    from matplotlib import pyplot as plt, animation
+    """from matplotlib import pyplot as plt, animation
     fig, axs = plt.subplots()
+    axs.set_xticks([])
+    axs.set_yticks([])
 
-    size = 30
+    size = 20
     
-    v_traj, av_traj = generate_xy_trajectories(size, 400)
-    print(len(v_traj))
-    v_traj = [smooth_trajectory(traj, (size, size)) for traj in v_traj]
-    print(len(v_traj))
-    av_traj = [smooth_trajectory(traj, (size, size)) for traj in av_traj]
-
-    plot_trajectories(v_traj, av_traj)
-    #anim = animation.FuncAnimation(fig, plot_trajectories_slice, fargs=(axs, v_traj, av_traj), interval=100, frames=1000, repeat=False)
+    v_traj, av_traj = generate_xy_trajectories(size, 200, cooling=10)
+    
+    plot_trajectories(v_traj, av_traj, size)
     plt.show()
+
+    v_traj = [smooth_trajectory(traj, size) for traj in v_traj]
+    av_traj = [smooth_trajectory(traj, size) for traj in av_traj]
+    
+    plot_trajectories(v_traj, av_traj, size)
+    #anim2 = animation.FuncAnimation(fig, plot_trajectories_slice, fargs=(axs, v_traj, av_traj), interval=100, frames=1000, repeat=False)
+    plt.show()"""
+
+    generate_dataset(20, 20, 20)

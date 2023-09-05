@@ -21,8 +21,13 @@ class Vortex_Visualiser:
         n_vortices = len(self.vortex_data)
         if n_vortices == 0:
             self.ax.clear()
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+            self.ax.set_xticklabels([])
+            self.ax.set_yticklabels([])
             self.ax.set_xlim(0, self.size)
             self.ax.set_ylim(0, self.size)  
+            self.ax.set_title("Predicted Vortices")
             self.ax.invert_yaxis()
             return
 
@@ -48,12 +53,11 @@ class Vortex_Visualiser:
         y = [[pos[0]] for pos in v] + [[pos[0]] for pos in av]
         colors = ["red" for _ in range(len(v))] + ["green" for _ in range(len(av))]
 
-        self.ax.scatter(x, y, color=colors, alpha=0.5, s=100)
+        self.ax.scatter(x, y, color=colors, alpha=0.5, s=50)
 
     def plot_scatter(self, ax, title="Predicted Vortices"):
         self.ax = ax 
-        self.ax.set_title(title)
-
+        ax.set_title("Predicted Vortices")
         vortices = self.vortex_data_to_vortices()
         #vortices = self.vortex_data
         self.plot_vortices(vortices)
@@ -71,9 +75,16 @@ class Vortex_Visualiser:
                 colors.append("red")
             else:
                 colors.append("green")
-        self.ax.scatter(x, y, color=colors, s=100)
+        
+        self.ax.scatter(x, y, color=colors, s=50)
+        
+        self.ax.set_title("Predicted Vortices")
         self.ax.set_xlim(0, self.size)  
         self.ax.set_ylim(0, self.size)  
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+        self.ax.set_xticklabels([])
+        self.ax.set_yticklabels([])
         self.ax.invert_yaxis()
     
     def vortex_data_to_vortices(self):
@@ -109,3 +120,4 @@ class Vortex_Visualiser:
         
         dist = torch.sum(diff ** 2, dim=-1).sqrt()
         return dist
+

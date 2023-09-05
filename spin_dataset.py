@@ -41,7 +41,6 @@ def generate_spin_dataset(size, n_graphs, graph_depth, dt=1, metropolis_sweeps=0
 
 # --------------- generating t+k dataset
 
-
 def create_k_step_dataset(size, amount, depth, train_val_split=0.8, k=10):
     sequences = create_data_sequences(size, amount, depth)
 
